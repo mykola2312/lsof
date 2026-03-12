@@ -133,10 +133,10 @@ int getmntinfo(struct statfs **, int);
 #    include <rpc/types.h>
 #    include <sys/protosw.h>
 #    include <sys/socket.h>
-#    define _WANT_SOCKET
+//#    define _WANT_SOCKET
 #    include <sys/socketvar.h>
 #    include <sys/un.h>
-#    define _WANT_UNPCB
+//#    define _WANT_UNPCB
 #    include <sys/unpcb.h>
 
 #    undef INADDR_LOOPBACK
@@ -146,14 +146,14 @@ int getmntinfo(struct statfs **, int);
 #    include <netinet/in_systm.h>
 #    include <netinet/ip.h>
 #    include <net/route.h>
-#    define _WANT_INPCB /* for FreeBSD 12 and above */
+//#    define _WANT_INPCB /* for FreeBSD 12 and above */
 #    include <netinet/in_pcb.h>
 #    include <netinet/ip_var.h>
 #    include <netinet/tcp.h>
 #    include <netinet/tcpip.h>
 #    include <netinet/tcp_fsm.h>
 #    include <netinet/tcp_timer.h>
-#    define _WANT_TCPCB /* for FreeBSD 12 and above */
+//#    define _WANT_TCPCB /* for FreeBSD 12 and above */
 #    include <netinet/tcp_var.h>
 #    include <sys/ucred.h>
 #    include <sys/uio.h>
@@ -423,7 +423,8 @@ typedef u_long KA_T;
 
 extern struct file *Cfp;
 
-extern kvm_t *Kd;
+struct procstat;
+extern struct procstat *Procstat;
 
 #    if defined(P_ADDR)
 extern KA_T Kpa;

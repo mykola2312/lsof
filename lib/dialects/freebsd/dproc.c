@@ -34,8 +34,7 @@ static char copyright[] =
 #endif
 
 #include "common.h"
-
-static void get_kernel_access(struct lsof_context *ctx);
+#include <libprocstat.h>
 
 /*
  * Local static values
@@ -503,140 +502,26 @@ void gather_proc_info(struct lsof_context *ctx) {
 }
 
 /*
- * get_kernel_access() - get access to kernel memory
- */
-
-static void get_kernel_access(struct lsof_context *ctx) {
-
-    /*
-     * Check kernel version.
-     */
-    (void)ckkv(ctx, "FreeBSD", LSOF_VSTR, (char *)NULL, (char *)NULL);
-    /*
-     * Set name list file path.
-     */
-    if (!Nmlst)
-
-#if defined(N_UNIX)
-        Nmlst = N_UNIX;
-#else  /* !defined(N_UNIX) */
-    {
-        if (!(Nmlst = get_nlist_path(ctx, 1))) {
-            (void)fprintf(stderr, "%s: can't get kernel name list path\n", Pn);
-            Error(ctx);
-        }
-    }
-#endif /* defined(N_UNIX) */
-
-#if defined(WILLDROPGID)
-    /*
-     * If kernel memory isn't coming from KMEM, drop setgid permission
-     * before attempting to open the (Memory) file.
-     */
-    if (Memory)
-        (void)dropgid(ctx);
-#else  /* !defined(WILLDROPGID) */
-    /*
-     * See if the non-KMEM memory and the name list files are readable.
-     */
-    if ((Memory && !is_readable(Memory, 1)) ||
-        (Nmlst && !is_readable(Nmlst, 1)))
-        Error(ctx);
-#endif /* defined(WILLDROPGID) */
-
-    /*
-     * Open kernel memory access.
-     */
-
-    if ((Kd = kvm_open(Nmlst, Memory, NULL, O_RDONLY, NULL)) == NULL)
-
-    {
-        (void)fprintf(stderr, "%s: kvm_open%s(execfile=%s, corefile=%s): %s\n",
-                      Pn,
-
-                      "",
-
-                      Nmlst ? Nmlst : "default",
-                      Memory ? Memory :
-
-#if defined(_PATH_MEM)
-                             _PATH_MEM,
-#else  /* !defined(_PATH_MEM) */
-                             "default",
-#endif /* defined(_PATH_MEM) */
-
-                      strerror(errno));
-        return;
-    }
-    (void)build_Nl(ctx, Drive_Nl);
-    if (kvm_nlist(Kd, Nl) < 0) {
-        (void)fprintf(stderr, "%s: can't read namelist from %s\n", Pn, Nmlst);
-        Error(ctx);
-    }
-
-#if defined(X_BADFILEOPS)
-    /*
-     * Get kernel's badfileops address (for process_file()).
-     */
-    if (get_Nl_value(ctx, X_BADFILEOPS, (struct drive_Nl *)NULL, &X_bfopsa) <
-            0 ||
-        !X_bfopsa) {
-        X_bfopsa = (KA_T)0;
-    }
-#endif /* defined(X_BADFILEOPS) */
-
-#if defined(WILLDROPGID)
-    /*
-     * Drop setgid permission, if necessary.
-     */
-    if (!Memory)
-        (void)dropgid(ctx);
-#endif /* defined(WILLDROPGID) */
-}
-
-#if !defined(N_UNIX)
-/*
- * get_nlist_path() - get kernel name list path
- */
-
-char *get_nlist_path(struct lsof_context *ctx,
-                     int ap) /* on success, return an allocated path
-                              * string pointer if 1; return a
-                              * constant character pointer if 0;
-                              * return NULL if failure */
-{
-    const char *bf;
-    static char *bfc;
-    MALLOC_S bfl;
-    /*
-     * Get bootfile name.
-     */
-    if ((bf = getbootfile())) {
-        if (!ap)
-            return ("");
-        bfl = (MALLOC_S)(strlen(bf) + 1);
-        if (!(bfc = (char *)malloc(bfl))) {
-            (void)fprintf(
-                stderr, "%s: can't allocate %d bytes for boot file path: %s\n",
-                Pn, (int)bfl, bf);
-            Error(ctx);
-        }
-        (void)snpf(bfc, bfl, "%s", bf);
-        return (bfc);
-    }
-    return ((char *)NULL);
-}
-#endif /* !defined(N_UNIX) */
-
-/*
  * initialize() - perform all initialization
  */
 
 void initialize(struct lsof_context *ctx) {
-#if __FreeBSD_version < 1400062
-    get_kernel_access(ctx);
-#endif /* __FreeBSD_version < 1400062 */
+    if (Procstat == NULL) {
+        Procstat = procstat_open_sysctl();
+        if (Procstat == NULL) {
+            (void)fprintf(stderr, "%s: cannot open procstat\n", Pn);
+            Error(ctx);
+        }
+    }
 }
+
+#if !defined(N_UNIX)
+char *get_nlist_path(struct lsof_context *ctx, int ap) {
+    (void)ctx;
+    (void)ap;
+    return (char *)NULL;
+}
+#endif /* !defined(N_UNIX) */
 
 /*
  * kread() - read from kernel memory
@@ -647,11 +532,9 @@ int kread(struct lsof_context *ctx, /* context */
           char *buf,                /* buffer to receive data */
           READLEN_T len)            /* length to read */
 {
-    int br;
-
-    if (!Kd)
-        return 1;
-    br = kvm_read(Kd, (u_long)addr, buf, len);
-
-    return ((br == len) ? 0 : 1);
+    (void)ctx;
+    (void)addr;
+    (void)buf;
+    (void)len;
+    return 1;
 }

@@ -53,7 +53,7 @@ struct drive_Nl Drive_Nl[] = {
     {"", ""},
     {NULL, NULL}};
 
-kvm_t *Kd = NULL; /* kvm descriptor */
+struct procstat *Procstat = NULL; /* libprocstat handle */
 
 #if defined(P_ADDR)
 KA_T Kpa; /* kernel proc struct address */
@@ -119,4 +119,3 @@ KA_T X_bfopsa; /* badfileops kernel address */
  */
 uintptr_t *__start_set_pcpu;
 uintptr_t *__stop_set_pcpu;
-
