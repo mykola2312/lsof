@@ -36,6 +36,10 @@ static char copyright[] =
 #include "common.h"
 #include <libprocstat.h>
 
+/* Declare userland sysctl entry point explicitly; the kernel header path
+ * used by lsof hides it when _KERNEL is defined. */
+int sysctl(const int *, unsigned int, void *, size_t *, const void *, size_t);
+
 /*
  * Local static values
  */
@@ -230,64 +234,78 @@ static void process_file_descriptors(struct lsof_context *ctx,
                                      struct xfile *xfiles, size_t n_xfiles,
                                      struct pcb_lists *pcbs,
                                      struct lock_list *locks) {
-    struct kinfo_file *kfiles;
-    int n_kfiles = 0;
-    int i;
+    struct filestat_list *fst_lst;
+    struct filestat *fst;
 
-    kfiles = kinfo_getfile(p->P_PID, &n_kfiles);
-    /* Pre-cache the mount info, as files w/o paths may need it from other files
-     * with paths on the same fs */
-    for (i = 0; i < n_kfiles; i++) {
-        if (kfiles[i].kf_fd < 0 || kfiles[i].kf_type == KF_TYPE_FIFO ||
-            kfiles[i].kf_type == KF_TYPE_VNODE)
-            readvfs(ctx, kfiles[i].kf_un.kf_file.kf_file_fsid,
-                    kfiles[i].kf_path);
+    fst_lst = procstat_getfiles(Procstat, p, 0);
+    if (fst_lst == NULL) {
+        if (!Fwarn)
+            fprintf(stderr, "%s: WARNING -- procstat_getfiles(%d) failed: %s\n",
+                    Pn, p->P_PID, strerror(errno));
+        return;
     }
-    for (i = 0; i < n_kfiles; i++) {
+
+    /* Pre-cache mount info to fill gaps when paths are missing. */
+    STAILQ_FOREACH(fst, fst_lst, next) {
+        struct kinfo_file *kf = fst->fs_typedep;
+        if (kf == NULL)
+            continue;
+        if (kf->kf_fd < 0 || kf->kf_type == KF_TYPE_FIFO ||
+            kf->kf_type == KF_TYPE_VNODE) {
+            readvfs(ctx, kf->kf_un.kf_file.kf_file_fsid, kf->kf_path);
+        }
+    }
+
+    STAILQ_FOREACH(fst, fst_lst, next) {
+        struct kinfo_file *kf = fst->fs_typedep;
         struct xfile key, *xfile;
 
+        if (kf == NULL)
+            continue;
+
         key.xf_pid = p->P_PID;
-        key.xf_fd = kfiles[i].kf_fd;
+        key.xf_fd = kf->kf_fd;
         xfile =
             bsearch(&key, xfiles, n_xfiles, sizeof(*xfiles), cmp_xfiles_pid_fd);
 
-        if (!ckscko && kfiles[i].kf_fd == KF_FD_TYPE_CWD) {
+        if (!ckscko && kf->kf_fd == KF_FD_TYPE_CWD) {
             alloc_lfile(ctx, LSOF_FD_CWD, -1);
-            process_vnode(ctx, &kfiles[i], xfile, locks);
+            process_vnode(ctx, kf, xfile, locks);
             if (Lf->sf)
                 link_lfile(ctx);
-        } else if (!ckscko && kfiles[i].kf_fd == KF_FD_TYPE_ROOT) {
+        } else if (!ckscko && kf->kf_fd == KF_FD_TYPE_ROOT) {
             alloc_lfile(ctx, LSOF_FD_ROOT_DIR, -1);
-            process_vnode(ctx, &kfiles[i], xfile, locks);
+            process_vnode(ctx, kf, xfile, locks);
             if (Lf->sf)
                 link_lfile(ctx);
-        } else if (!ckscko && kfiles[i].kf_fd == KF_FD_TYPE_JAIL) {
+        } else if (!ckscko && kf->kf_fd == KF_FD_TYPE_JAIL) {
             alloc_lfile(ctx, LSOF_FD_JAIL_DIR, -1);
-            process_vnode(ctx, &kfiles[i], xfile, locks);
+            process_vnode(ctx, kf, xfile, locks);
             if (Lf->sf)
                 link_lfile(ctx);
-        } else if (!ckscko && kfiles[i].kf_fd == KF_FD_TYPE_TEXT) {
+        } else if (!ckscko && kf->kf_fd == KF_FD_TYPE_TEXT) {
             alloc_lfile(ctx, LSOF_FD_PROGRAM_TEXT, -1);
-            process_vnode(ctx, &kfiles[i], xfile, locks);
+            process_vnode(ctx, kf, xfile, locks);
             if (Lf->sf)
                 link_lfile(ctx);
-        } else if (!ckscko && kfiles[i].kf_fd == KF_FD_TYPE_CTTY) {
+        } else if (!ckscko && kf->kf_fd == KF_FD_TYPE_CTTY) {
             alloc_lfile(ctx, LSOF_FD_CTTY, -1);
-            process_vnode(ctx, &kfiles[i], xfile, locks);
+            process_vnode(ctx, kf, xfile, locks);
             if (Lf->sf)
                 link_lfile(ctx);
-        } else if (!ckscko && kfiles[i].kf_fd < 0) {
+        } else if (!ckscko && kf->kf_fd < 0) {
             if (!Fwarn)
                 fprintf(stderr, "%s: WARNING -- unsupported fd type %d\n", Pn,
-                        kfiles[i].kf_fd);
+                        kf->kf_fd);
         } else {
-            alloc_lfile(ctx, LSOF_FD_NUMERIC, kfiles[i].kf_fd);
-            process_kinfo_file(ctx, &kfiles[i], xfile, pcbs, locks);
+            alloc_lfile(ctx, LSOF_FD_NUMERIC, kf->kf_fd);
+            process_kinfo_file(ctx, kf, xfile, pcbs, locks);
             if (Lf->sf)
                 link_lfile(ctx);
         }
     }
-    free(kfiles);
+
+    procstat_freefiles(Procstat, fst_lst);
 }
 
 /*

@@ -28,7 +28,11 @@
  * 4. This notice may not be removed or altered.
  */
 
+#include <sys/queue.h>
 #include <sys/socket.h>
+
+/* sys/sysctl.h is included with _KERNEL set; declare the userland interface. */
+int sysctlbyname(const char *, void *, size_t *, const void *, size_t);
 #ifndef lint
 static char copyright[] =
     "@(#) Copyright 1994 Purdue Research Foundation.\nAll rights reserved.\n";
