@@ -31,14 +31,16 @@
 #include <sys/queue.h>
 #include <sys/socket.h>
 
-/* sys/sysctl.h is included with _KERNEL set; declare the userland interface. */
-int sysctlbyname(const char *, void *, size_t *, const void *, size_t);
 #ifndef lint
 static char copyright[] =
     "@(#) Copyright 1994 Purdue Research Foundation.\nAll rights reserved.\n";
 #endif
 
 #include "common.h"
+
+/* Declare userland sysctl entry point explicitly; the kernel header path
+ * used by lsof hides it when _KERNEL is defined. */
+int sysctlbyname(const char *, void *, size_t *, const void *, size_t);
 
 #if defined(HASIPv6)
 
@@ -88,182 +90,6 @@ static char copyright[] =
  */
 
 static int ckstate(struct lsof_context *ctx, struct xtcpcb *pcb, int fam);
-
-static int cmp_xunpcb_sock_pcb(const void *a, const void *b) {
-    const struct xunpcb *pcb1 = (const struct xunpcb *)a;
-    const struct xunpcb *pcb2 = (const struct xunpcb *)b;
-
-    if (pcb1->xu_socket.so_pcb < pcb2->xu_socket.so_pcb)
-        return -1;
-    else if (pcb1->xu_socket.so_pcb > pcb2->xu_socket.so_pcb)
-        return 1;
-    else
-        return 0;
-}
-
-static int cmp_xtcpcb_sock_pcb(const void *a, const void *b) {
-    const struct xtcpcb *pcb1 = (const struct xtcpcb *)a;
-    const struct xtcpcb *pcb2 = (const struct xtcpcb *)b;
-
-    if (pcb1->XTCPCB_SO_PCB < pcb2->XTCPCB_SO_PCB)
-        return -1;
-    else if (pcb1->XTCPCB_SO_PCB > pcb2->XTCPCB_SO_PCB)
-        return 1;
-    else
-        return 0;
-}
-
-static int cmp_xinpcb_sock_pcb(const void *a, const void *b) {
-    const struct xinpcb *pcb1 = (const struct xinpcb *)a;
-    const struct xinpcb *pcb2 = (const struct xinpcb *)b;
-
-    if (pcb1->xi_socket.so_pcb < pcb2->xi_socket.so_pcb)
-        return -1;
-    else if (pcb1->xi_socket.so_pcb > pcb2->xi_socket.so_pcb)
-        return 1;
-    else
-        return 0;
-}
-
-static int get_unix_pcbs(const char *name, struct xunpcb **pcbs,
-                         size_t *n_pcbs) {
-    size_t len;
-    char *buffer = NULL;
-    struct xunpgen *ug = (struct xunpgen *)buffer;
-    int count = 0;
-    int ret = 1;
-
-    if (sysctlbyname(name, NULL, &len, NULL, 0))
-        goto end;
-    if ((buffer = malloc(len)) == NULL)
-        goto end;
-    if (sysctlbyname(name, buffer, &len, NULL, 0))
-        goto end;
-    ug = (struct xunpgen *)buffer;
-    for (ug = (struct xunpgen *)((char *)ug + ug->xug_len);
-         ug->xug_len == sizeof(struct xunpcb);
-         ug = (struct xunpgen *)((char *)ug + ug->xug_len)) {
-        ++count;
-    }
-    memmove(buffer, buffer + ((struct xunpgen *)buffer)->xug_len,
-            count * sizeof(struct xunpcb));
-    qsort(buffer, count, sizeof(struct xunpcb), cmp_xunpcb_sock_pcb);
-    ret = 0;
-
-end:
-    *pcbs = (struct xunpcb *)buffer;
-    *n_pcbs = count;
-    if (ret)
-        free(buffer);
-    return ret;
-}
-
-static int get_tcp_pcbs(struct xtcpcb **pcbs, size_t *n_pcbs) {
-    size_t len;
-    char *buffer = NULL;
-    struct xinpgen *ig = (struct xinpgen *)buffer;
-    int count = 0;
-    int ret = 1;
-
-    if (sysctlbyname("net.inet.tcp.pcblist", NULL, &len, NULL, 0))
-        goto end;
-    if ((buffer = malloc(len)) == NULL)
-        goto end;
-    if (sysctlbyname("net.inet.tcp.pcblist", buffer, &len, NULL, 0))
-        goto end;
-    ig = (struct xinpgen *)buffer;
-    for (ig = (struct xinpgen *)((char *)ig + ig->xig_len);
-         ig->xig_len == sizeof(struct xtcpcb);
-         ig = (struct xinpgen *)((char *)ig + ig->xig_len)) {
-        ++count;
-    }
-    memmove(buffer, buffer + ((struct xinpgen *)buffer)->xig_len,
-            count * sizeof(struct xtcpcb));
-    qsort(buffer, count, sizeof(struct xtcpcb), cmp_xtcpcb_sock_pcb);
-    ret = 0;
-
-end:
-    *pcbs = (struct xtcpcb *)buffer;
-    *n_pcbs = count;
-    if (ret)
-        free(buffer);
-    return ret;
-}
-
-static int get_udp_pcbs(struct xinpcb **pcbs, size_t *n_pcbs) {
-    size_t len;
-    char *buffer = NULL;
-    struct xinpgen *ig = (struct xinpgen *)buffer;
-    int count = 0;
-    int ret = 1;
-
-    if (sysctlbyname("net.inet.udp.pcblist", NULL, &len, NULL, 0))
-        goto end;
-    if ((buffer = malloc(len)) == NULL)
-        goto end;
-    if (sysctlbyname("net.inet.udp.pcblist", buffer, &len, NULL, 0))
-        goto end;
-    ig = (struct xinpgen *)buffer;
-    for (ig = (struct xinpgen *)((char *)ig + ig->xig_len);
-         ig->xig_len == sizeof(struct xinpcb);
-         ig = (struct xinpgen *)((char *)ig + ig->xig_len)) {
-        ++count;
-    }
-    memmove(buffer, buffer + ((struct xinpgen *)buffer)->xig_len,
-            count * sizeof(struct xinpcb));
-    qsort(buffer, count, sizeof(struct xinpcb), cmp_xinpcb_sock_pcb);
-    ret = 0;
-
-end:
-    *pcbs = (struct xinpcb *)buffer;
-    *n_pcbs = count;
-    if (ret)
-        free(buffer);
-    return 0;
-}
-
-struct pcb_lists *read_pcb_lists(void) {
-    struct pcb_lists *pcbs;
-    int succeeded = 0;
-
-    pcbs = calloc(1, sizeof(struct pcb_lists));
-    if (!pcbs)
-        goto end;
-
-    if (get_unix_pcbs("net.local.stream.pcblist", &pcbs->un_stream_pcbs,
-                      &pcbs->n_un_stream_pcbs))
-        goto end;
-    if (get_unix_pcbs("net.local.dgram.pcblist", &pcbs->un_dgram_pcbs,
-                      &pcbs->n_un_dgram_pcbs))
-        goto end;
-    if (get_unix_pcbs("net.local.seqpacket.pcblist", &pcbs->un_seqpacket_pcbs,
-                      &pcbs->n_un_seqpacket_pcbs))
-        goto end;
-    if (get_tcp_pcbs(&pcbs->tcp_pcbs, &pcbs->n_tcp_pcbs))
-        goto end;
-    if (get_udp_pcbs(&pcbs->udp_pcbs, &pcbs->n_udp_pcbs))
-        goto end;
-    succeeded = 1;
-
-end:
-    if (!succeeded) {
-        free_pcb_lists(pcbs);
-        return NULL;
-    }
-    return pcbs;
-}
-
-void free_pcb_lists(struct pcb_lists *pcbs) {
-    if (pcbs) {
-        free(pcbs->un_stream_pcbs);
-        free(pcbs->un_dgram_pcbs);
-        free(pcbs->un_seqpacket_pcbs);
-        free(pcbs->tcp_pcbs);
-        free(pcbs->udp_pcbs);
-    }
-    free(pcbs);
-}
-
 /*
  * ckstate() -- read TCP control block and check TCP state for inclusion
  *		or exclusion
@@ -319,6 +145,36 @@ static int ckstate(struct lsof_context *ctx, struct xtcpcb *pcb, int fam) {
 #else  /* __FreeBSD_version < 1200026 */
     return (-1);
 #endif /* __FreeBSD_version >= 1200026 */
+}
+
+static int cmp_xtcpcb_sock_pcb(const void *a, const void *b) {
+    const struct xtcpcb *aa = (const struct xtcpcb *)a;
+    const struct xtcpcb *bb = (const struct xtcpcb *)b;
+    if (aa->XTCPCB_SO_PCB < bb->XTCPCB_SO_PCB)
+        return -1;
+    if (aa->XTCPCB_SO_PCB > bb->XTCPCB_SO_PCB)
+        return 1;
+    return 0;
+}
+
+static int cmp_xinpcb_sock_pcb(const void *a, const void *b) {
+    const struct xinpcb *aa = (const struct xinpcb *)a;
+    const struct xinpcb *bb = (const struct xinpcb *)b;
+    if (aa->xi_socket.so_pcb < bb->xi_socket.so_pcb)
+        return -1;
+    if (aa->xi_socket.so_pcb > bb->xi_socket.so_pcb)
+        return 1;
+    return 0;
+}
+
+static int cmp_xunpcb_sock_pcb(const void *a, const void *b) {
+    const struct xunpcb *aa = (const struct xunpcb *)a;
+    const struct xunpcb *bb = (const struct xunpcb *)b;
+    if (aa->xu_socket.so_pcb < bb->xu_socket.so_pcb)
+        return -1;
+    if (aa->xu_socket.so_pcb > bb->xu_socket.so_pcb)
+        return 1;
+    return 0;
 }
 
 static void find_pcb_and_xsocket(struct pcb_lists *pcbs, int domain, int type,
@@ -380,18 +236,19 @@ void process_socket(struct lsof_context *ctx, struct kinfo_file *kf,
     unsigned char *la = (unsigned char *)NULL;
     void *pcb = NULL;
     struct xsocket *s = NULL;
-    int ts = -1;
     struct sockaddr_un *ua = NULL;
 
     int unl;
+    int ts = -1;
+
+    find_pcb_and_xsocket(pcbs, kf->kf_sock_domain, kf->kf_sock_type,
+                         kf->kf_un.kf_sock.kf_sock_pcb, &pcb, &s);
 
     Lf->type = LSOF_FILE_SOCKET;
     Lf->inp_ty = 2;
     /*
      * Read the socket, protocol, and domain structures.
      */
-    find_pcb_and_xsocket(pcbs, kf->kf_sock_domain, kf->kf_sock_type,
-                         kf->kf_un.kf_sock.kf_sock_pcb, &pcb, &s);
 /*
  * Save size information.
  */
@@ -471,7 +328,8 @@ void process_socket(struct lsof_context *ctx, struct kinfo_file *kf,
              * Save IPv6 address information.
              */
             if (kf->kf_sock_protocol == IPPROTO_TCP) {
-                if ((ts = ckstate(ctx, (struct xtcpcb *)pcb, fam)) == 1) {
+                if (pcb &&
+                    (ts = ckstate(ctx, (struct xtcpcb *)pcb, fam)) == 1) {
                     return;
                 }
             }
@@ -514,7 +372,8 @@ void process_socket(struct lsof_context *ctx, struct kinfo_file *kf,
                 return;
             }
             if (kf->kf_sock_protocol == IPPROTO_TCP) {
-                if ((ts = ckstate(ctx, (struct xtcpcb *)pcb, fam)) == 1)
+                if (pcb &&
+                    (ts = ckstate(ctx, (struct xtcpcb *)pcb, fam)) == 1)
                     return;
             }
             enter_dev_ch(ctx,
@@ -559,7 +418,7 @@ void process_socket(struct lsof_context *ctx, struct kinfo_file *kf,
          */
         if (fa || la)
             (void)ent_inaddr(ctx, la, lp, fa, fp, fam);
-        if (ts == 0) {
+        if (ts == 0 && pcb) {
             struct xtcpcb *tcp_pcb = (struct xtcpcb *)pcb;
             Lf->lts.type = 0;
 #if __FreeBSD_version >= 1200026
@@ -644,4 +503,256 @@ void process_socket(struct lsof_context *ctx, struct kinfo_file *kf,
     }
     if (Namech[0])
         enter_nm(ctx, Namech);
+}
+
+static void *read_sysctl_data(const char *name, size_t *len) {
+    void *buf = NULL;
+    size_t bufsize = 0;
+
+    if (sysctlbyname(name, NULL, &bufsize, NULL, 0) == -1)
+        return NULL;
+    for (;;) {
+        void *newbuf;
+
+        newbuf = realloc(buf, bufsize);
+        if (!newbuf) {
+            free(buf);
+            return NULL;
+        }
+        buf = newbuf;
+        *len = bufsize;
+        if (sysctlbyname(name, buf, len, NULL, 0) == 0)
+            return buf;
+        if (errno != ENOMEM || *len <= bufsize) {
+            free(buf);
+            return NULL;
+        }
+        bufsize = *len;
+    }
+}
+
+static void *read_xinpgen_list(const char *name, size_t *len) {
+    void *buf = NULL;
+    int valid = 0;
+
+    for (int i = 0; i < 3; i++) {
+        struct xinpgen *xig, *exig;
+
+        free(buf);
+        buf = read_sysctl_data(name, len);
+        if (!buf)
+            return NULL;
+        if (*len < sizeof(*xig) * 2)
+            continue;
+        xig = (struct xinpgen *)buf;
+        exig = (struct xinpgen *)(void *)((char *)buf + *len - sizeof(*exig));
+        if (xig->xig_len != sizeof(*xig) || exig->xig_len != sizeof(*exig))
+            continue;
+        valid = 1;
+        if (xig->xig_gen == exig->xig_gen)
+            return buf;
+    }
+    if (!valid) {
+        free(buf);
+        return NULL;
+    }
+    return buf;
+}
+
+static void *read_xunpgen_list(const char *name, size_t *len) {
+    void *buf = NULL;
+    int valid = 0;
+
+    for (int i = 0; i < 3; i++) {
+        struct xunpgen *xug, *exug;
+
+        free(buf);
+        buf = read_sysctl_data(name, len);
+        if (!buf)
+            return NULL;
+        if (*len < sizeof(*xug) * 2)
+            continue;
+        xug = (struct xunpgen *)buf;
+        exug = (struct xunpgen *)(void *)((char *)buf + *len - sizeof(*exug));
+        if (xug->xug_len != sizeof(*xug) || exug->xug_len != sizeof(*exug))
+            continue;
+        valid = 1;
+        if (xug->xug_gen == exug->xug_gen)
+            return buf;
+    }
+    if (!valid) {
+        free(buf);
+        return NULL;
+    }
+    return buf;
+}
+
+static int fill_tcp_pcbs(struct xtcpcb **list, size_t *count) {
+    char *cp, *end;
+    size_t len;
+    void *buf;
+    struct xinpgen *xig;
+
+    *list = NULL;
+    *count = 0;
+    buf = read_xinpgen_list("net.inet.tcp.pcblist", &len);
+    if (!buf)
+        return -1;
+
+    xig = (struct xinpgen *)buf;
+    cp = (char *)buf + xig->xig_len;
+    end = (char *)buf + len - sizeof(struct xinpgen);
+    while (cp < end) {
+        struct xtcpcb *xtp = (struct xtcpcb *)(void *)cp;
+        if (xtp->xt_len == 0 || xtp->xt_len > (size_t)(end - cp) ||
+            xtp->xt_len < sizeof(*xtp))
+            break;
+        (*count)++;
+        cp += xtp->xt_len;
+    }
+    if (*count == 0) {
+        free(buf);
+        return 0;
+    }
+    *list = malloc(*count * sizeof(**list));
+    if (!*list) {
+        free(buf);
+        *count = 0;
+        return -1;
+    }
+    cp = (char *)buf + ((struct xinpgen *)buf)->xig_len;
+    for (size_t i = 0; i < *count && cp < end; i++) {
+        struct xtcpcb *xtp = (struct xtcpcb *)(void *)cp;
+        (*list)[i] = *xtp;
+        cp += xtp->xt_len;
+    }
+    free(buf);
+    qsort(*list, *count, sizeof(**list), cmp_xtcpcb_sock_pcb);
+    return 0;
+}
+
+static int fill_udp_pcbs(struct xinpcb **list, size_t *count) {
+    char *cp, *end;
+    size_t len;
+    void *buf;
+    struct xinpgen *xig;
+
+    *list = NULL;
+    *count = 0;
+    buf = read_xinpgen_list("net.inet.udp.pcblist", &len);
+    if (!buf)
+        return -1;
+    xig = (struct xinpgen *)buf;
+    cp = (char *)buf + xig->xig_len;
+    end = (char *)buf + len - sizeof(struct xinpgen);
+    while (cp < end) {
+        struct xinpcb *xip = (struct xinpcb *)(void *)cp;
+        if (xip->xi_len == 0 || xip->xi_len > (size_t)(end - cp) ||
+            xip->xi_len < sizeof(*xip))
+            break;
+        (*count)++;
+        cp += xip->xi_len;
+    }
+    if (*count == 0) {
+        free(buf);
+        return 0;
+    }
+    *list = malloc(*count * sizeof(**list));
+    if (!*list) {
+        free(buf);
+        *count = 0;
+        return -1;
+    }
+    cp = (char *)buf + ((struct xinpgen *)buf)->xig_len;
+    for (size_t i = 0; i < *count && cp < end; i++) {
+        struct xinpcb *xip = (struct xinpcb *)(void *)cp;
+        (*list)[i] = *xip;
+        cp += xip->xi_len;
+    }
+    free(buf);
+    qsort(*list, *count, sizeof(**list), cmp_xinpcb_sock_pcb);
+    return 0;
+}
+
+static int fill_unix_pcbs(const char *name, struct xunpcb **list,
+                          size_t *count) {
+    char *cp, *end;
+    size_t len;
+    void *buf;
+    struct xunpgen *xug;
+
+    *list = NULL;
+    *count = 0;
+    buf = read_xunpgen_list(name, &len);
+    if (!buf)
+        return -1;
+    xug = (struct xunpgen *)buf;
+    cp = (char *)buf + xug->xug_len;
+    end = (char *)buf + len - sizeof(struct xunpgen);
+    while (cp < end) {
+        struct xunpcb *xup = (struct xunpcb *)(void *)cp;
+        if (xup->xu_len == 0 || xup->xu_len > (size_t)(end - cp) ||
+            xup->xu_len < sizeof(*xup))
+            break;
+        (*count)++;
+        cp += xup->xu_len;
+    }
+    if (*count == 0) {
+        free(buf);
+        return 0;
+    }
+    *list = malloc(*count * sizeof(**list));
+    if (!*list) {
+        free(buf);
+        *count = 0;
+        return -1;
+    }
+    cp = (char *)buf + ((struct xunpgen *)buf)->xug_len;
+    for (size_t i = 0; i < *count && cp < end; i++) {
+        struct xunpcb *xup = (struct xunpcb *)(void *)cp;
+        (*list)[i] = *xup;
+        cp += xup->xu_len;
+    }
+    free(buf);
+    qsort(*list, *count, sizeof(**list), cmp_xunpcb_sock_pcb);
+    return 0;
+}
+
+struct pcb_lists *read_pcb_lists(void) {
+    int success = 0;
+    struct pcb_lists *pcbs;
+
+    pcbs = calloc(1, sizeof(*pcbs));
+    if (!pcbs)
+        return NULL;
+    if (fill_tcp_pcbs(&pcbs->tcp_pcbs, &pcbs->n_tcp_pcbs) == 0)
+        success = 1;
+    if (fill_udp_pcbs(&pcbs->udp_pcbs, &pcbs->n_udp_pcbs) == 0)
+        success = 1;
+    if (fill_unix_pcbs("net.local.stream.pcblist", &pcbs->un_stream_pcbs,
+                       &pcbs->n_un_stream_pcbs) == 0)
+        success = 1;
+    if (fill_unix_pcbs("net.local.dgram.pcblist", &pcbs->un_dgram_pcbs,
+                       &pcbs->n_un_dgram_pcbs) == 0)
+        success = 1;
+    if (fill_unix_pcbs("net.local.seqpacket.pcblist",
+                       &pcbs->un_seqpacket_pcbs, &pcbs->n_un_seqpacket_pcbs) ==
+        0)
+        success = 1;
+    if (!success) {
+        free_pcb_lists(pcbs);
+        return NULL;
+    }
+    return pcbs;
+}
+
+void free_pcb_lists(struct pcb_lists *pcb_lists) {
+    if (!pcb_lists)
+        return;
+    free(pcb_lists->tcp_pcbs);
+    free(pcb_lists->udp_pcbs);
+    free(pcb_lists->un_stream_pcbs);
+    free(pcb_lists->un_dgram_pcbs);
+    free(pcb_lists->un_seqpacket_pcbs);
+    free(pcb_lists);
 }
