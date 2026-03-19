@@ -8,6 +8,7 @@ LIB=	liblsof.a
 
 CDEF=	${RC_CFLAGS}
 CDEFS=	${CDEF} ${CFGF}
+DINC?=	-I/usr/src/sys -I/usr/src/sys/contrib/ck/include
 INCL=	${DINC} -I.. -I../include -Idialects/${DIALECT_DIR}
 
 HDR=	common.h proto.h proto.h
